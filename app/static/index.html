@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Scrapify Agent MVP</title>
+  <style>
+    :root { color-scheme: dark; --bg:#0a0f1d; --card:#121a2c; --muted:#93a4bf; --line:#263450; --accent:#76e6c6; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:Inter,ui-sans-serif,system-ui,sans-serif; background:radial-gradient(circle at 10% 0%,#172642,var(--bg) 40%); color:#f6f8fc; }
+    main { max-width:1180px; margin:auto; padding:34px 18px 80px; }
+    h1 { margin:0 0 8px; font-size:clamp(30px,5vw,52px); letter-spacing:-.04em; }
+    p { color:var(--muted); }
+    .grid { display:grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap:18px; margin-top:26px; }
+    .card { background:rgba(18,26,44,.92); border:1px solid var(--line); border-radius:18px; padding:20px; box-shadow:0 20px 50px rgba(0,0,0,.2); }
+    label { display:block; font-size:13px; color:#c8d2e4; margin:14px 0 7px; }
+    input,select,textarea,button { width:100%; border-radius:10px; border:1px solid var(--line); padding:11px 12px; background:#0c1424; color:#f6f8fc; font:inherit; }
+    textarea { min-height:135px; resize:vertical; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:13px; }
+    button { margin-top:16px; border:none; background:var(--accent); color:#061510; font-weight:800; cursor:pointer; }
+    button:disabled { opacity:.55; cursor:wait; }
+    .row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    .checks { display:flex; gap:18px; flex-wrap:wrap; margin-top:14px; color:#c8d2e4; font-size:13px; }
+    .checks label { display:flex; align-items:center; gap:7px; margin:0; }
+    .checks input { width:auto; }
+    pre { white-space:pre-wrap; word-break:break-word; max-height:600px; overflow:auto; background:#080e19; padding:14px; border-radius:12px; border:1px solid var(--line); font-size:12px; }
+    .status { min-height:24px; color:var(--accent); font-weight:700; }
+    .actions { display:flex; gap:10px; }
+    .actions a { display:none; flex:1; margin-top:12px; padding:10px; text-align:center; border-radius:10px; background:#22304a; color:white; text-decoration:none; }
+    small { color:var(--muted); }
+    code { color:#c8ffef; }
+    @media (max-width:850px) { .grid { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Scrapify Agent MVP 🕷️</h1>
+  <p>Extrae información pública con modo automático, productos, artículos, tablas, enlaces o selectores CSS personalizados.</p>
+
+  <div class="grid">
+    <section class="card">
+      <form id="form">
+        <label>URL pública</label>
+        <input id="url" type="url" required placeholder="https://books.toscrape.com/" />
+
+        <div class="row">
+          <div>
+            <label>Modo</label>
+            <select id="mode">
+              <option value="auto">Automático</option>
+              <option value="products">Productos</option>
+              <option value="articles">Artículos</option>
+              <option value="table">Primera tabla</option>
+              <option value="links">Enlaces</option>
+              <option value="custom">Selectores personalizados</option>
+            </select>
+          </div>
+          <div>
+            <label>Páginas máximas</label>
+            <input id="maxPages" type="number" min="1" max="20" value="1" />
+          </div>
+        </div>
+
+        <label>Selector de cada elemento, opcional</label>
+        <input id="itemSelector" placeholder="article.product_pod" />
+
+        <label>Campos personalizados en JSON</label>
+        <textarea id="fields">[
+  {"name":"title","selector":"h3 a","value":"text"},
+  {"name":"price","selector":".price_color","value":"text"},
+  {"name":"url","selector":"h3 a","value":"href"}
+]</textarea>
+        <small>Se usan en modo <code>custom</code>. Valores: text, html, href, src, content o value.</small>
+
+        <label>Selector de página siguiente, opcional</label>
+        <input id="nextSelector" placeholder="li.next a" />
+
+        <div class="checks">
+          <label><input id="robots" type="checkbox" checked /> Respetar robots.txt</label>
+          <label><input id="sameDomain" type="checkbox" checked /> Solo mismo dominio</label>
+        </div>
+        <button id="run" type="submit">Ejecutar agente</button>
+      </form>
+    </section>
+
+    <section class="card">
+      <div id="status" class="status">Listo para tejer datos.</div>
+      <div class="actions"><a id="csv">Descargar CSV</a></div>
+      <pre id="output">Los resultados aparecerán aquí.</pre>
+    </section>
+  </div>
+</main>
+<script>
+const form = document.querySelector('#form');
+const output = document.querySelector('#output');
+const statusBox = document.querySelector('#status');
+const button = document.querySelector('#run');
+const csv = document.querySelector('#csv');
+
+form.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  csv.style.display = 'none';
+  button.disabled = true;
+  statusBox.textContent = 'Navegando y extrayendo…';
+  output.textContent = '';
+
+  let fields = [];
+  try { fields = JSON.parse(document.querySelector('#fields').value || '[]'); }
+  catch { statusBox.textContent = 'El JSON de campos no es válido.'; button.disabled = false; return; }
+
+  const payload = {
+    url: document.querySelector('#url').value,
+    mode: document.querySelector('#mode').value,
+    item_selector: document.querySelector('#itemSelector').value || null,
+    fields,
+    next_page_selector: document.querySelector('#nextSelector').value || null,
+    max_pages: Number(document.querySelector('#maxPages').value),
+    max_items: 500,
+    render_js: true,
+    delay_ms: 800,
+    respect_robots_txt: document.querySelector('#robots').checked,
+    same_domain_only: document.querySelector('#sameDomain').checked
+  };
+
+  try {
+    const response = await fetch('/api/scrape', {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload)
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.detail || 'Error desconocido');
+    statusBox.textContent = `Completado: ${body.item_count} elementos en ${body.pages_visited} página(s).`;
+    output.textContent = JSON.stringify(body, null, 2);
+    csv.href = `/api/jobs/${body.job_id}/export.csv`;
+    csv.style.display = 'block';
+  } catch (error) {
+    statusBox.textContent = 'No se pudo completar la extracción.';
+    output.textContent = String(error);
+  } finally {
+    button.disabled = false;
+  }
+});
+</script>
+</body>
+</html>
